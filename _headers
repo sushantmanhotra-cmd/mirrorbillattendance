@@ -1,0 +1,8 @@
+# Cloudflare Pages headers (the recommended free host — see docs/COST.md)
+/vendor/*
+  Cache-Control: public, max-age=31536000, immutable
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), geolocation=(self), microphone=()

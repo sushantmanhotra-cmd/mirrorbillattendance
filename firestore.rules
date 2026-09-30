@@ -1,0 +1,204 @@
+rules_version = '2';
+
+/* =============================================================
+   Haazri — who may read and write what
+
+   Many shops in one project, none able to see another's. Every login
+   has exactly one members/{uid} document naming its shop and role, and
+   everything below keys off that document.
+
+   NOBODY WRITES THEIR OWN MEMBERS DOCUMENT — except once, when
+   founding a brand-new shop in the same batch that creates the shop
+   and names them its owner. After that an owner may add EMPLOYEE
+   members for their own shop only, and only for a login that the
+   employee record (written in the same batch) points at.
+
+   AN EMPLOYEE CANNOT CHOOSE THEIR OWN TIME. A scan must carry the
+   server's clock (== request.time), may only add their own record to
+   today's day document, and may never overwrite a day already marked.
+   Whether they were late is worked out from that server time by the
+   app, not written by the phone.
+
+   The tests in test/rules/ try each of these doors from the wrong side.
+   ============================================================= */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function memberPath() {
+      return /databases/$(database)/documents/members/$(request.auth.uid);
+    }
+    function isMember() { return signedIn() && exists(memberPath()); }
+    function me() { return get(memberPath()).data; }
+    function ownerOf(sid) {
+      return isMember() && me().shopId == sid && me().role == 'owner';
+    }
+    function employeeOf(sid) {
+      return isMember() && me().shopId == sid && me().role == 'employee';
+    }
+    function shopPath(sid) {
+      return /databases/$(database)/documents/shops/$(sid);
+    }
+    function shop(sid) { return get(shopPath(sid)).data; }
+
+    /* 'YYYY-MM-DD' of a server timestamp, in UTC. A day key written by a
+       phone must be within a day of it either side — enough for any
+       timezone in India and anywhere else, and not enough to backfill
+       last week. */
+    function keyOf(t) {
+      return string(t.year()) + '-' +
+        (t.month() < 10 ? '0' : '') + string(t.month()) + '-' +
+        (t.day() < 10 ? '0' : '') + string(t.day());
+    }
+    function nearToday(day) {
+      return day == keyOf(request.time)
+        || day == keyOf(request.time + duration.value(1, 'd'))
+        || day == keyOf(request.time - duration.value(1, 'd'));
+    }
+
+    /* ---------------- members ---------------- */
+    match /members/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+
+      /* Founding a shop: my own document, role owner, for a shop that
+         did not exist before this batch and names me as its owner. */
+      allow create: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['shopId', 'role'])
+        && request.resource.data.role == 'owner'
+        && !exists(shopPath(request.resource.data.shopId))
+        && getAfter(shopPath(request.resource.data.shopId)).data.ownerUid == request.auth.uid;
+
+      /* An owner adding a member of staff: somebody else's login, role
+         employee, my shop, and the employee record written in the same
+         batch points back at exactly this login. */
+      allow create: if signedIn() && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['shopId', 'role', 'empId'])
+        && request.resource.data.role == 'employee'
+        && request.resource.data.empId is string
+        && ownerOf(request.resource.data.shopId)
+        && getAfter(/databases/$(database)/documents/shops/$(request.resource.data.shopId)/employees/$(request.resource.data.empId)).data.uid == uid;
+
+      allow delete: if signedIn() && resource.data.role == 'employee'
+        && ownerOf(resource.data.shopId);
+
+      allow update: if false;
+    }
+
+    /* ---------------- the staff sign-in lookup ----------------
+       Public by design: the sign-in screen reads it before anybody is
+       signed in. It holds a shop code and a version number — nothing a
+       stranger can use without the PIN. Never listable. */
+    match /logins/{id} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['shopId', 'v'])
+        && request.resource.data.v is int
+        && id.split('-')[0] == request.resource.data.shopId
+        && ownerOf(request.resource.data.shopId);
+      allow delete: if signedIn() && ownerOf(resource.data.shopId);
+    }
+
+    /* ---------------- shops ---------------- */
+    match /shops/{sid} {
+      allow get: if ownerOf(sid) || employeeOf(sid);
+      allow list: if false;
+
+      allow create: if signedIn()
+        && !exists(memberPath())
+        && sid.matches('^[2-9A-Z]{6}$')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(
+             ['name', 'ownerName', 'ownerUid', 'ownerEmail', 'createdAt', 'site', 'settings', 'nextEmp']);
+
+      allow update: if ownerOf(sid)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerEmail == resource.data.ownerEmail;
+
+      allow delete: if false;
+
+      /* ---------------- employees ----------------
+         Salary, face samples and ledger. The owner writes all of it; a
+         member of staff may read their own card and nobody else's, and
+         may never write it — or they could register a friend's face. */
+      match /employees/{eid} {
+        allow read, write: if ownerOf(sid);
+        allow get: if employeeOf(sid) && me().empId == eid;
+      }
+
+      /* ---------------- days ---------------- */
+      match /days/{day} {
+        allow read: if ownerOf(sid) || employeeOf(sid);
+        allow write: if ownerOf(sid);
+
+        allow create: if employeeOf(sid) && nearToday(day)
+          && request.resource.data.keys().hasOnly(['r'])
+          && request.resource.data.r.keys().hasOnly([me().empId])
+          && validIn(sid, request.resource.data.r[me().empId]);
+
+        allow update: if employeeOf(sid) && nearToday(day)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['r'])
+          && request.resource.data.r.diff(resource.data.r).affectedKeys().hasOnly([me().empId])
+          && (
+            (!(me().empId in resource.data.r)
+              && validIn(sid, request.resource.data.r[me().empId]))
+            ||
+            ((me().empId in resource.data.r)
+              && validOut(sid, resource.data.r[me().empId], request.resource.data.r[me().empId]))
+          );
+      }
+
+      /* ---------------- scans from outside the perimeter ---------------- */
+      match /requests/{rid} {
+        allow read: if ownerOf(sid);
+        allow read: if employeeOf(sid) && resource.data.empId == me().empId;
+
+        allow create: if employeeOf(sid)
+          && request.resource.data.keys().hasOnly(
+               ['empId', 'name', 'date', 'kind', 'at', 'lat', 'lng', 'acc', 'dist', 'match', 'reason', 'photo', 'status'])
+          && request.resource.data.empId == me().empId
+          && request.resource.data.status == 'pending'
+          && request.resource.data.kind in ['in', 'out']
+          && request.resource.data.at == request.time
+          && nearToday(request.resource.data.date)
+          && request.resource.data.reason is string
+          && request.resource.data.reason.size() <= 200
+          && request.resource.data.photo is string
+          && request.resource.data.photo.size() <= 30000
+          && shop(sid).settings.allowOutside != false;
+
+        allow update: if ownerOf(sid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'note'])
+          && request.resource.data.status in ['approved', 'rejected'];
+
+        allow delete: if ownerOf(sid);
+      }
+    }
+
+    /* A scan in: the server's time and the phone route.
+
+       The distance is NOT checked against the perimeter here. It is
+       worked out on the phone, so a tampered phone could write 0 as
+       easily as 40 — checking it would cost a read of the shop on every
+       scan (3,000 a day across 200 shops) and protect against nothing.
+       What does protect: the time is the server's, the face was matched
+       to this login, and the distance is on the owner's register. */
+    function validIn(sid, rec) {
+      return rec.keys().hasOnly(['at', 'src', 'dist', 'acc', 'match', 'photo'])
+        && rec.keys().hasAll(['at', 'src', 'dist'])
+        && (!('photo' in rec) || (rec.photo is string && rec.photo.size() <= 12000))
+        && rec.at == request.time
+        && rec.src == 'phone'
+        && rec.dist is number;
+    }
+
+    /* A scan out: only adds the leaving time, once, on a day that was
+       already scanned in. */
+    function validOut(sid, before, after) {
+      return !('out' in before)
+        && after.diff(before).affectedKeys().hasOnly(['out', 'outDist'])
+        && after.out == request.time
+        && after.outDist is number;
+    }
+  }
+}
