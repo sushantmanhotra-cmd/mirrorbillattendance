@@ -1,5 +1,11 @@
 # Haazri: face and location attendance for small shops
 
+> **Moved.** Haazri now lives inside the mirrorBill repository, in
+> `haazri/`, and is served at **mirrorbill.com/haazri** as "Haazri by
+> mirrorBill". That copy has the licence, Razorpay payments, the new logo
+> and the CDN-served face model. This repository is the original prototype
+> and is no longer updated.
+
 *हाज़िरी, "attendance"*
 
 A separate, attendance-only product built from mirrorBill's attendance,
