@@ -1,0 +1,18 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "empId", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "days", "fieldPath": "r", "indexes": [] },
+    { "collectionGroup": "employees", "fieldPath": "face", "indexes": [] },
+    { "collectionGroup": "employees", "fieldPath": "ledger", "indexes": [] },
+    { "collectionGroup": "requests", "fieldPath": "photo", "indexes": [] }
+  ]
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f4c4a">
+  <title>Haazri — Face &amp; Location Attendance</title>
+  <meta name="description" content="Face-scan attendance from the employee's own phone, inside the shop's perimeter — with approvals and payroll.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Haazri">
+</head>
+<body>
+  <noscript><p style="padding:24px;font-family:sans-serif">Haazri needs JavaScript switched on.</p></noscript>
+  <div id="root"></div>
+
+  <script src="vendor/firebase-app-compat.js"></script>
+  <script src="vendor/firebase-auth-compat.js"></script>
+  <script src="vendor/firebase-firestore-compat.js"></script>
+
+  <script src="js/config.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/pay.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/face.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/login.js"></script>
+  <script src="js/employee.js"></script>
+  <script src="js/owner-today.js"></script>
+  <script src="js/owner-approvals.js"></script>
+  <script src="js/owner-staff.js"></script>
+  <script src="js/owner-register.js"></script>
+  <script src="js/owner-payroll.js"></script>
+  <script src="js/owner-kiosk.js"></script>
+  <script src="js/owner-settings.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('service-worker.js').catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>
